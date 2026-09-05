@@ -1,20 +1,36 @@
 package com.banking.account_service.service;
 
 import com.banking.account_service.dto.CreateAccountDto;
+import com.banking.account_service.exception.BalanceUpdateConflictException;
 import com.banking.account_service.model.Account;
 import com.banking.account_service.repository.AccountRepository;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class AccountService {
     private final AccountRepository accountRepository;
+    private final TransactionTemplate transactionTemplate;
+
+    @Autowired
+    public AccountService(AccountRepository accountRepository, PlatformTransactionManager transactionManager) {
+        this(accountRepository, new TransactionTemplate(transactionManager));
+    }
+
+    public AccountService(AccountRepository accountRepository, TransactionTemplate transactionTemplate) {
+        this.accountRepository = accountRepository;
+        this.transactionTemplate = transactionTemplate;
+        this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    }
 
     @Transactional
     public Account createAccount(CreateAccountDto createAccountDto) {
@@ -35,27 +51,49 @@ public class AccountService {
         return accountRepository.findByCustomerId(customerId);
     }
 
-    @Transactional
     public void updateBalance(String accountNumber, BigDecimal amount) {
-        Account account = getAccount(accountNumber);
-        
-        if (account.getStatus() == Account.AccountStatus.FROZEN) {
-            throw new RuntimeException("Account is frozen");
-        }
+        int maxAttempts = 3;
 
-        BigDecimal newBalance = account.getBalance().add(amount);
-        
-        // Minimum Balance Rule for Savings
-        if (account.getAccountType() == Account.AccountType.SAVINGS && newBalance.compareTo(new BigDecimal("100")) < 0) {
-            throw new RuntimeException("Minimum balance rule violated for SAVINGS account");
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                transactionTemplate.executeWithoutResult(status -> {
+                    Account account = getAccount(accountNumber);
+                    
+                    if (account.getStatus() == Account.AccountStatus.FROZEN) {
+                        throw new RuntimeException("Account is frozen");
+                    }
+
+                    BigDecimal newBalance = account.getBalance().add(amount);
+                    
+                    // Minimum Balance Rule for Savings
+                    if (account.getAccountType() == Account.AccountType.SAVINGS && newBalance.compareTo(new BigDecimal("100")) < 0) {
+                        throw new RuntimeException("Minimum balance rule violated for SAVINGS account");
+                    }
+                    
+                    if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
+                        throw new RuntimeException("Insufficient funds");
+                    }
+                    
+                    account.setBalance(newBalance);
+                    accountRepository.saveAndFlush(account);
+                });
+                return;
+            } catch (org.springframework.dao.OptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
+                if (attempt == maxAttempts) {
+                    throw new BalanceUpdateConflictException(
+                            "Failed to update balance for account " + accountNumber + " after " + maxAttempts + " attempts due to concurrent updates", ex);
+                }
+                try {
+                    long minMs = attempt == 1 ? 30 : 250;
+                    long maxMs = attempt == 1 ? 250 : 600;
+                    long backoffMs = java.util.concurrent.ThreadLocalRandom.current().nextLong(minMs, maxMs);
+                    Thread.sleep(backoffMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Update balance interrupted during backoff", ie);
+                }
+            }
         }
-        
-        if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
-            throw new RuntimeException("Insufficient funds");
-        }
-        
-        account.setBalance(newBalance);
-        accountRepository.save(account);
     }
 
     @Transactional
