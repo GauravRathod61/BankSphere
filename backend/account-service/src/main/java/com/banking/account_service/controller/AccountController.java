@@ -1,5 +1,6 @@
 package com.banking.account_service.controller;
 
+import com.banking.account_service.dto.UpdateBalanceRequestDto;
 import com.banking.account_service.dto.CreateAccountDto;
 import com.banking.account_service.model.Account;
 import com.banking.account_service.service.AccountService;
@@ -9,9 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/accounts")
@@ -48,8 +47,8 @@ public class AccountController {
 
     // Internal endpoint for Transaction Service
     @PostMapping("/{accountNumber}/update-balance")
-    public ResponseEntity<Void> updateBalance(@PathVariable String accountNumber, @RequestBody Map<String, BigDecimal> payload) {
-        accountService.updateBalance(accountNumber, payload.get("amount"));
+    public ResponseEntity<Void> updateBalance(@PathVariable String accountNumber, @Valid @RequestBody UpdateBalanceRequestDto dto) {
+        accountService.updateBalance(accountNumber, dto.getAmount(), dto.getOperationKey());
         return ResponseEntity.ok().build();
     }
 }

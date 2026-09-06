@@ -3,8 +3,11 @@ package com.banking.account_service.service;
 import com.banking.account_service.dto.CreateAccountDto;
 import com.banking.account_service.exception.BalanceUpdateConflictException;
 import com.banking.account_service.model.Account;
+import com.banking.account_service.model.BalanceOperation;
 import com.banking.account_service.repository.AccountRepository;
+import com.banking.account_service.repository.BalanceOperationRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -14,20 +17,23 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
 public class AccountService {
     private final AccountRepository accountRepository;
+    private final BalanceOperationRepository balanceOperationRepository;
     private final TransactionTemplate transactionTemplate;
 
     @Autowired
-    public AccountService(AccountRepository accountRepository, PlatformTransactionManager transactionManager) {
-        this(accountRepository, new TransactionTemplate(transactionManager));
+    public AccountService(AccountRepository accountRepository, BalanceOperationRepository balanceOperationRepository, PlatformTransactionManager transactionManager) {
+        this(accountRepository, balanceOperationRepository, new TransactionTemplate(transactionManager));
     }
 
-    public AccountService(AccountRepository accountRepository, TransactionTemplate transactionTemplate) {
+    public AccountService(AccountRepository accountRepository, BalanceOperationRepository balanceOperationRepository, TransactionTemplate transactionTemplate) {
         this.accountRepository = accountRepository;
+        this.balanceOperationRepository = balanceOperationRepository;
         this.transactionTemplate = transactionTemplate;
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -51,7 +57,11 @@ public class AccountService {
         return accountRepository.findByCustomerId(customerId);
     }
 
-    public void updateBalance(String accountNumber, BigDecimal amount) {
+    public void updateBalance(String accountNumber, BigDecimal amount, String operationKey) {
+        if (operationKey != null && !operationKey.isBlank() && balanceOperationRepository.existsByOperationKey(operationKey)) {
+            return;
+        }
+
         int maxAttempts = 3;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -76,8 +86,24 @@ public class AccountService {
                     
                     account.setBalance(newBalance);
                     accountRepository.saveAndFlush(account);
+
+                    if (operationKey != null && !operationKey.isBlank()) {
+                        BalanceOperation op = new BalanceOperation();
+                        op.setOperationKey(operationKey);
+                        op.setAccountNumber(accountNumber);
+                        op.setAmount(amount);
+                        balanceOperationRepository.saveAndFlush(op);
+                    }
                 });
                 return;
+            } catch (DataIntegrityViolationException ex) {
+                if (operationKey != null && !operationKey.isBlank()) {
+                    Optional<BalanceOperation> existingOp = balanceOperationRepository.findByOperationKey(operationKey);
+                    if (existingOp.isPresent()) {
+                        return; // Concurrent insert processed successfully
+                    }
+                }
+                throw ex; // Rethrow original exception if not caused by duplicate operationKey
             } catch (org.springframework.dao.OptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
                 if (attempt == maxAttempts) {
                     throw new BalanceUpdateConflictException(

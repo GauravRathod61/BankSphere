@@ -39,7 +39,7 @@ class AccountServiceConcurrencyTest {
         testAccountNumber = account.getAccountNumber();
 
         // Initialize balance to 1000.00
-        accountService.updateBalance(testAccountNumber, new BigDecimal("1000.00"));
+        accountService.updateBalance(testAccountNumber, new BigDecimal("1000.00"), "init-balance-op");
     }
 
     @Test
@@ -51,10 +51,11 @@ class AccountServiceConcurrencyTest {
         CountDownLatch finishLatch = new CountDownLatch(numberOfThreads);
 
         for (int i = 0; i < numberOfThreads; i++) {
+            final int index = i;
             executorService.submit(() -> {
                 try {
                     startLatch.await(); // Wait for all threads to be ready
-                    accountService.updateBalance(testAccountNumber, incrementAmount);
+                    accountService.updateBalance(testAccountNumber, incrementAmount, "test-op-" + index);
                 } catch (Exception e) {
                     e.printStackTrace();
                 } finally {

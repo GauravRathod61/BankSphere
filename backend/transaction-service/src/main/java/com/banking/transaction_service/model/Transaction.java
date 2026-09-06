@@ -34,6 +34,11 @@ public class Transaction {
 
     private String description;
 
+    @Column(unique = true)
+    private String idempotencyKey;
+
+    private String compensationTransactionId;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime timestamp = LocalDateTime.now();
 
@@ -42,6 +47,6 @@ public class Transaction {
     }
 
     public enum TransactionStatus {
-        PENDING, SUCCESS, FAILED
+        PENDING, SUCCESS, FAILED, REVERSED, FAILED_NEEDS_MANUAL_REVIEW
     }
 }

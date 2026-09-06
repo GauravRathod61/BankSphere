@@ -2,28 +2,60 @@ package com.banking.transaction_service.service;
 
 import com.banking.transaction_service.client.AccountServiceClient;
 import com.banking.transaction_service.dto.TransactionRequestDto;
+import com.banking.transaction_service.exception.AccountServiceRejectedException;
+import com.banking.transaction_service.exception.AccountServiceTimeoutException;
+import com.banking.transaction_service.exception.AccountServiceUnavailableException;
 import com.banking.transaction_service.model.Transaction;
 import com.banking.transaction_service.repository.TransactionRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
 public class TransactionService {
     private final TransactionRepository transactionRepository;
     private final AccountServiceClient accountServiceClient;
+    private final TransactionTemplate transactionTemplate;
 
-    public TransactionService(TransactionRepository transactionRepository, AccountServiceClient accountServiceClient) {
-        this.transactionRepository = transactionRepository;
-        this.accountServiceClient = accountServiceClient;
+    public enum OperationResult {
+        APPLIED, DEFINITELY_NOT_APPLIED, AMBIGUOUS
     }
 
-    @Transactional
+    @Autowired
+    public TransactionService(TransactionRepository transactionRepository, AccountServiceClient accountServiceClient, PlatformTransactionManager transactionManager) {
+        this(transactionRepository, accountServiceClient, new TransactionTemplate(transactionManager));
+    }
+
+    public TransactionService(TransactionRepository transactionRepository, AccountServiceClient accountServiceClient, TransactionTemplate transactionTemplate) {
+        this.transactionRepository = transactionRepository;
+        this.accountServiceClient = accountServiceClient;
+        this.transactionTemplate = transactionTemplate;
+        this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    }
+
     public Transaction processTransaction(TransactionRequestDto dto) {
+        return processTransaction(dto, null);
+    }
+
+    public Transaction processTransaction(TransactionRequestDto dto, String idempotencyKey) {
+        boolean hasKey = idempotencyKey != null && !idempotencyKey.isBlank();
+
+        if (hasKey) {
+            Optional<Transaction> existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent()) {
+                return existing.get();
+            }
+        }
+
         Transaction transaction = new Transaction();
         transaction.setTransactionId(UUID.randomUUID().toString());
         transaction.setSourceAccountNumber(dto.getSourceAccountNumber());
@@ -32,33 +64,115 @@ public class TransactionService {
         transaction.setType(dto.getType());
         transaction.setDescription(dto.getDescription());
         transaction.setStatus(Transaction.TransactionStatus.PENDING);
-        
-        transaction = transactionRepository.save(transaction);
+
+        if (hasKey) {
+            transaction.setIdempotencyKey(idempotencyKey);
+        }
 
         try {
-            switch (dto.getType()) {
-                case DEPOSIT:
-                    updateAccountBalance(dto.getSourceAccountNumber(), dto.getAmount());
-                    break;
-                case WITHDRAW:
-                    updateAccountBalance(dto.getSourceAccountNumber(), dto.getAmount().negate());
-                    break;
-                case TRANSFER:
-                    // Perform transfer in a distributed system needs Saga or 2PC.
-                    // For simplicity, we assume account service handles synchronous updates correctly.
-                    updateAccountBalance(dto.getSourceAccountNumber(), dto.getAmount().negate());
-                    updateAccountBalance(dto.getTargetAccountNumber(), dto.getAmount());
-                    break;
+            transaction = saveInitialTransaction(transaction);
+        } catch (DataIntegrityViolationException ex) {
+            if (hasKey) {
+                Optional<Transaction> existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
+                if (existing.isPresent()) {
+                    return existing.get();
+                }
             }
-            transaction.setStatus(Transaction.TransactionStatus.SUCCESS);
-        } catch (Exception e) {
+            throw ex;
+        }
+
+        if (dto.getType() == Transaction.TransactionType.DEPOSIT || dto.getType() == Transaction.TransactionType.WITHDRAW) {
+            String opKey = dto.getType() == Transaction.TransactionType.DEPOSIT ?
+                    (transaction.getTransactionId() + "-DEPOSIT") :
+                    (transaction.getTransactionId() + "-WITHDRAW");
+            BigDecimal signedAmount = dto.getType() == Transaction.TransactionType.DEPOSIT ?
+                    dto.getAmount() : dto.getAmount().negate();
+
+            OperationResult res = executeOrReconcileBalanceUpdate(dto.getSourceAccountNumber(), signedAmount, opKey);
+
+            if (res == OperationResult.APPLIED) {
+                transaction.setStatus(Transaction.TransactionStatus.SUCCESS);
+            } else if (res == OperationResult.DEFINITELY_NOT_APPLIED) {
+                transaction.setStatus(Transaction.TransactionStatus.FAILED);
+            } else { // AMBIGUOUS
+                transaction.setStatus(Transaction.TransactionStatus.FAILED_NEEDS_MANUAL_REVIEW);
+            }
+            return transactionRepository.save(transaction);
+        }
+
+        // TRANSFER Saga Flow
+        String debitKey = transaction.getTransactionId() + "-DEBIT";
+        OperationResult debitRes = executeOrReconcileBalanceUpdate(dto.getSourceAccountNumber(), dto.getAmount().negate(), debitKey);
+
+        if (debitRes == OperationResult.DEFINITELY_NOT_APPLIED) {
             transaction.setStatus(Transaction.TransactionStatus.FAILED);
-            // In a real-world scenario we'd do compensating transactions (rollback) for TRANSFER
-            // if the target account update fails.
-            throw e;
+            return transactionRepository.save(transaction);
+        }
+        if (debitRes == OperationResult.AMBIGUOUS) {
+            transaction.setStatus(Transaction.TransactionStatus.FAILED_NEEDS_MANUAL_REVIEW);
+            return transactionRepository.save(transaction);
+        }
+
+        // Debit is APPLIED -> proceed to Credit
+        String creditKey = transaction.getTransactionId() + "-CREDIT";
+        OperationResult creditRes = executeOrReconcileBalanceUpdate(dto.getTargetAccountNumber(), dto.getAmount(), creditKey);
+
+        if (creditRes == OperationResult.APPLIED) {
+            transaction.setStatus(Transaction.TransactionStatus.SUCCESS);
+            return transactionRepository.save(transaction);
+        }
+        if (creditRes == OperationResult.AMBIGUOUS) {
+            // Double ambiguity on credit side: NO compensation, debit retained
+            transaction.setStatus(Transaction.TransactionStatus.FAILED_NEEDS_MANUAL_REVIEW);
+            return transactionRepository.save(transaction);
+        }
+
+        // creditRes == DEFINITELY_NOT_APPLIED -> Must attempt compensation
+        String compKey = transaction.getTransactionId() + "-DEBIT-COMPENSATION";
+        OperationResult compRes = executeOrReconcileBalanceUpdate(dto.getSourceAccountNumber(), dto.getAmount(), compKey);
+
+        Transaction compTx = new Transaction();
+        compTx.setTransactionId(UUID.randomUUID().toString());
+        compTx.setSourceAccountNumber(dto.getSourceAccountNumber());
+        compTx.setTargetAccountNumber(dto.getTargetAccountNumber());
+        compTx.setAmount(dto.getAmount());
+        compTx.setType(Transaction.TransactionType.TRANSFER);
+        compTx.setDescription("Compensation for transaction " + transaction.getTransactionId());
+        compTx.setStatus(compRes == OperationResult.APPLIED ? Transaction.TransactionStatus.SUCCESS : Transaction.TransactionStatus.FAILED);
+        compTx = saveInitialTransaction(compTx);
+
+        transaction.setCompensationTransactionId(compTx.getTransactionId());
+
+        if (compRes == OperationResult.APPLIED) {
+            transaction.setStatus(Transaction.TransactionStatus.REVERSED);
+        } else { // DEFINITELY_NOT_APPLIED or AMBIGUOUS
+            transaction.setStatus(Transaction.TransactionStatus.FAILED_NEEDS_MANUAL_REVIEW);
         }
 
         return transactionRepository.save(transaction);
+    }
+
+    private OperationResult executeOrReconcileBalanceUpdate(String accountNumber, BigDecimal amount, String operationKey) {
+        try {
+            accountServiceClient.updateAccountBalance(accountNumber, amount, operationKey);
+            return OperationResult.APPLIED;
+        } catch (AccountServiceRejectedException | AccountServiceUnavailableException e) {
+            return OperationResult.DEFINITELY_NOT_APPLIED;
+        } catch (AccountServiceTimeoutException e) {
+            // Ambiguous read timeout -> perform SAME-KEY RECONCILIATION call
+            try {
+                accountServiceClient.updateAccountBalance(accountNumber, amount, operationKey);
+                return OperationResult.APPLIED;
+            } catch (AccountServiceRejectedException | AccountServiceUnavailableException e2) {
+                return OperationResult.DEFINITELY_NOT_APPLIED;
+            } catch (Exception e2) {
+                return OperationResult.AMBIGUOUS;
+            }
+        }
+    }
+
+    private Transaction saveInitialTransaction(Transaction transaction) {
+        return transactionTemplate.execute(status -> transactionRepository.saveAndFlush(transaction));
     }
 
     public Page<Transaction> getTransactionHistory(String accountNumber, int page, int size) {
@@ -76,9 +190,5 @@ public class TransactionService {
         java.time.LocalDateTime end = yearMonth.atEndOfMonth().atTime(23, 59, 59, 999999999);
         return transactionRepository.findBySourceAccountNumberAndTimestampBetweenOrTargetAccountNumberAndTimestampBetweenOrderByTimestampDesc(
                 accountNumber, start, end, accountNumber, start, end);
-    }
-
-    private void updateAccountBalance(String accountNumber, BigDecimal amount) {
-        accountServiceClient.updateAccountBalance(accountNumber, amount);
     }
 }
