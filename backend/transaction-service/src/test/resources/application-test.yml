@@ -1,27 +1,23 @@
-server:
-  port: 8083
-
 spring:
-  application:
-    name: transaction-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/banking_db
-    username: postgres
-    password: postgres
+    url: jdbc:h2:mem:transactiondb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: create-drop
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
-        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        dialect: org.hibernate.dialect.H2Dialect
 
 banking:
-  account-service-url: http://localhost:8082
+  account-service-url: http://localhost:9090
   account-service:
-    connect-timeout: 2000ms
-    read-timeout: 3000ms
+    connect-timeout: 1000ms
+    read-timeout: 1500ms
 
 resilience4j:
   retry:
@@ -29,7 +25,7 @@ resilience4j:
     instances:
       accountService:
         max-attempts: 3
-        wait-duration: 100ms
+        wait-duration: 10ms
         retry-exceptions:
           - java.net.ConnectException
   circuitbreaker:
@@ -43,13 +39,7 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 2
         automatic-transition-from-open-to-half-open-enabled: true
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
-
 logging:
   level:
     org.springframework.web: INFO
-    org.hibernate.SQL: DEBUG
+    org.hibernate.SQL: WARN

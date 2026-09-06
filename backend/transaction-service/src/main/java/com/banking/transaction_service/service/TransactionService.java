@@ -1,33 +1,25 @@
 package com.banking.transaction_service.service;
 
+import com.banking.transaction_service.client.AccountServiceClient;
 import com.banking.transaction_service.dto.TransactionRequestDto;
 import com.banking.transaction_service.model.Transaction;
 import com.banking.transaction_service.repository.TransactionRepository;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class TransactionService {
     private final TransactionRepository transactionRepository;
-    private final RestTemplate restTemplate;
+    private final AccountServiceClient accountServiceClient;
 
-    @Value("${banking.account-service-url}")
-    private String accountServiceUrl;
-
-    public TransactionService(TransactionRepository transactionRepository) {
+    public TransactionService(TransactionRepository transactionRepository, AccountServiceClient accountServiceClient) {
         this.transactionRepository = transactionRepository;
-        this.restTemplate = new RestTemplate();
+        this.accountServiceClient = accountServiceClient;
     }
 
     @Transactional
@@ -63,7 +55,7 @@ public class TransactionService {
             transaction.setStatus(Transaction.TransactionStatus.FAILED);
             // In a real-world scenario we'd do compensating transactions (rollback) for TRANSFER
             // if the target account update fails.
-            throw new RuntimeException("Transaction failed: " + e.getMessage());
+            throw e;
         }
 
         return transactionRepository.save(transaction);
@@ -87,9 +79,6 @@ public class TransactionService {
     }
 
     private void updateAccountBalance(String accountNumber, BigDecimal amount) {
-        String url = accountServiceUrl + "/accounts/" + accountNumber + "/update-balance";
-        Map<String, BigDecimal> request = new HashMap<>();
-        request.put("amount", amount);
-        restTemplate.postForEntity(url, request, Void.class);
+        accountServiceClient.updateAccountBalance(accountNumber, amount);
     }
 }
