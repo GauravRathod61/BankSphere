@@ -6,6 +6,7 @@ import com.banking.customer_service.dto.LoginResponseDto;
 import com.banking.customer_service.model.Customer;
 import com.banking.customer_service.repository.BeneficiaryRepository;
 import com.banking.customer_service.repository.CustomerRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +24,7 @@ public class CustomerService {
     private final BeneficiaryRepository beneficiaryRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final MeterRegistry meterRegistry;
 
     @PostConstruct
     public void seedAdmin() {
@@ -37,7 +39,7 @@ public class CustomerService {
             admin.setPasswordHash(passwordEncoder.encode("Admin@123"));
             admin.setRole(Customer.Role.ADMIN);
             customerRepository.save(admin);
-            log.info("Initialized default ADMIN user: {}", adminEmail);
+            log.info("Initialized default ADMIN user: {}", maskEmail(adminEmail));
         }
     }
 
@@ -58,16 +60,29 @@ public class CustomerService {
         customer.setPasswordHash(passwordEncoder.encode(customerDto.getPassword()));
         customer.setRole(Customer.Role.CUSTOMER);
         
-        return customerRepository.save(customer);
+        Customer saved = customerRepository.save(customer);
+        meterRegistry.counter("banking.customers.registered", "status", "SUCCESS").increment();
+        log.info("Customer registered successfully with customerId={}", saved.getId());
+        return saved;
     }
 
     public LoginResponseDto login(LoginRequestDto request) {
-        Customer customer = customerRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
+        Customer customer;
+        try {
+            customer = customerRepository.findByEmail(request.getEmail())
+                    .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
 
-        if (!passwordEncoder.matches(request.getPassword(), customer.getPasswordHash())) {
-            throw new BadCredentialsException("Invalid email or password");
+            if (!passwordEncoder.matches(request.getPassword(), customer.getPasswordHash())) {
+                throw new BadCredentialsException("Invalid email or password");
+            }
+        } catch (BadCredentialsException e) {
+            meterRegistry.counter("banking.auth.logins", "status", "FAILED").increment();
+            log.warn("Authentication failed for email={}", maskEmail(request.getEmail()));
+            throw e;
         }
+
+        meterRegistry.counter("banking.auth.logins", "status", "SUCCESS").increment();
+        log.info("Authentication successful for customerId={}", customer.getId());
 
         String token = jwtService.generateToken(customer);
         return LoginResponseDto.builder()
@@ -110,5 +125,15 @@ public class CustomerService {
             throw new RuntimeException("Beneficiary does not belong to this customer");
         }
         beneficiaryRepository.delete(beneficiary);
+    }
+
+    private String maskEmail(String email) {
+        if (email == null || !email.contains("@")) {
+            return "***";
+        }
+        String[] parts = email.split("@", 2);
+        String name = parts[0];
+        String visible = name.length() > 2 ? name.substring(0, 2) : name.substring(0, 1);
+        return visible + "***@" + parts[1];
     }
 }
