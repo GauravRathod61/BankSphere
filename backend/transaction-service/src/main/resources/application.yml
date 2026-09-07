@@ -22,6 +22,10 @@ banking:
   account-service:
     connect-timeout: 2000ms
     read-timeout: 3000ms
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+      service-token-expiration-seconds: 300
 
 resilience4j:
   retry:
@@ -44,6 +48,7 @@ resilience4j:
         automatic-transition-from-open-to-half-open-enabled: true
         ignore-exceptions:
           - com.banking.transaction_service.exception.AccountServiceRejectedException
+          - com.banking.transaction_service.exception.AccountServiceSecurityException
 
 management:
   endpoints:

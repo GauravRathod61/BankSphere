@@ -3,6 +3,7 @@ package com.banking.transaction_service.service;
 import com.banking.transaction_service.client.AccountServiceClient;
 import com.banking.transaction_service.dto.TransactionRequestDto;
 import com.banking.transaction_service.exception.AccountServiceRejectedException;
+import com.banking.transaction_service.exception.AccountServiceSecurityException;
 import com.banking.transaction_service.exception.AccountServiceTimeoutException;
 import com.banking.transaction_service.exception.AccountServiceUnavailableException;
 import com.banking.transaction_service.model.Transaction;
@@ -156,14 +157,14 @@ public class TransactionService {
         try {
             accountServiceClient.updateAccountBalance(accountNumber, amount, operationKey);
             return OperationResult.APPLIED;
-        } catch (AccountServiceRejectedException | AccountServiceUnavailableException e) {
+        } catch (AccountServiceRejectedException | AccountServiceSecurityException | AccountServiceUnavailableException e) {
             return OperationResult.DEFINITELY_NOT_APPLIED;
         } catch (AccountServiceTimeoutException e) {
             // Ambiguous read timeout -> perform SAME-KEY RECONCILIATION call
             try {
                 accountServiceClient.updateAccountBalance(accountNumber, amount, operationKey);
                 return OperationResult.APPLIED;
-            } catch (AccountServiceRejectedException | AccountServiceUnavailableException e2) {
+            } catch (AccountServiceRejectedException | AccountServiceSecurityException | AccountServiceUnavailableException e2) {
                 return OperationResult.DEFINITELY_NOT_APPLIED;
             } catch (Exception e2) {
                 return OperationResult.AMBIGUOUS;

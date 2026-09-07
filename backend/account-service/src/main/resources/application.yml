@@ -19,6 +19,9 @@ spring:
 
 banking:
   customer-service-url: http://localhost:8081
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
 
 management:
   endpoints:

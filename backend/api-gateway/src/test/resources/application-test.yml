@@ -1,0 +1,11 @@
+server:
+  port: 0
+
+spring:
+  application:
+    name: api-gateway
+
+services:
+  customer-service-url: http://localhost:9099
+  account-service-url: http://localhost:9099
+  transaction-service-url: http://localhost:9099

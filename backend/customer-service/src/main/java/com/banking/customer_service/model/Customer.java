@@ -26,6 +26,17 @@ public class Customer {
 
     private String address;
 
+    @Column(nullable = false)
+    private String passwordHash;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private Role role = Role.CUSTOMER;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    public enum Role {
+        CUSTOMER, ADMIN
+    }
 }

@@ -110,8 +110,8 @@ public class AccountService {
                             "Failed to update balance for account " + accountNumber + " after " + maxAttempts + " attempts due to concurrent updates", ex);
                 }
                 try {
-                    long minMs = attempt == 1 ? 30 : 250;
-                    long maxMs = attempt == 1 ? 250 : 600;
+                    long minMs = attempt == 1 ? 50 : 150;
+                    long maxMs = attempt == 1 ? 250 : 500;
                     long backoffMs = java.util.concurrent.ThreadLocalRandom.current().nextLong(minMs, maxMs);
                     Thread.sleep(backoffMs);
                 } catch (InterruptedException ie) {

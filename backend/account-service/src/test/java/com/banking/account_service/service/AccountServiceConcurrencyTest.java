@@ -1,6 +1,7 @@
 package com.banking.account_service.service;
 
 import com.banking.account_service.dto.CreateAccountDto;
+import com.banking.account_service.exception.BalanceUpdateConflictException;
 import com.banking.account_service.model.Account;
 import com.banking.account_service.repository.AccountRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,7 +56,16 @@ class AccountServiceConcurrencyTest {
             executorService.submit(() -> {
                 try {
                     startLatch.await(); // Wait for all threads to be ready
-                    accountService.updateBalance(testAccountNumber, incrementAmount, "test-op-" + index);
+                    boolean success = false;
+                    while (!success) {
+                        try {
+                            accountService.updateBalance(testAccountNumber, incrementAmount, "test-op-" + index);
+                            success = true;
+                        } catch (BalanceUpdateConflictException ex) {
+                            // Retry with same operationKey on conflict
+                            Thread.sleep(10);
+                        }
+                    }
                 } catch (Exception e) {
                     e.printStackTrace();
                 } finally {

@@ -1,11 +1,9 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:accountdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    url: jdbc:h2:mem:customerdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
     username: sa
     password:
-    hikari:
-      maximum-pool-size: 25
   jpa:
     hibernate:
       ddl-auto: create-drop
@@ -19,6 +17,7 @@ banking:
   security:
     jwt:
       secret: "TestOnlyJwtSecretMustBeAtLeast256BitsLongForHMACSHA256Testing123456"
+      expiration-ms: 3600000
 
 logging:
   level:

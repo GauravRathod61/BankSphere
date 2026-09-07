@@ -1,12 +1,15 @@
 package com.banking.customer_service.controller;
 
+import com.banking.customer_service.dto.BeneficiaryDto;
 import com.banking.customer_service.dto.CustomerDto;
+import com.banking.customer_service.model.Beneficiary;
 import com.banking.customer_service.model.Customer;
 import com.banking.customer_service.service.CustomerService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,28 +26,33 @@ public class CustomerController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('CUSTOMER') and #id.toString() == authentication.name)")
     public ResponseEntity<Customer> getCustomer(@PathVariable Long id) {
         return ResponseEntity.ok(customerService.getCustomerById(id));
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<Customer>> getAllCustomers() {
         return ResponseEntity.ok(customerService.getAllCustomers());
     }
 
     @PostMapping("/{customerId}/beneficiaries")
-    public ResponseEntity<com.banking.customer_service.model.Beneficiary> addBeneficiary(
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('CUSTOMER') and #customerId.toString() == authentication.name)")
+    public ResponseEntity<Beneficiary> addBeneficiary(
             @PathVariable Long customerId,
-            @Valid @RequestBody com.banking.customer_service.dto.BeneficiaryDto dto) {
+            @Valid @RequestBody BeneficiaryDto dto) {
         return new ResponseEntity<>(customerService.addBeneficiary(customerId, dto), HttpStatus.CREATED);
     }
 
     @GetMapping("/{customerId}/beneficiaries")
-    public ResponseEntity<List<com.banking.customer_service.model.Beneficiary>> getBeneficiaries(@PathVariable Long customerId) {
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('CUSTOMER') and #customerId.toString() == authentication.name)")
+    public ResponseEntity<List<Beneficiary>> getBeneficiaries(@PathVariable Long customerId) {
         return ResponseEntity.ok(customerService.getBeneficiaries(customerId));
     }
 
     @DeleteMapping("/{customerId}/beneficiaries/{beneficiaryId}")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('CUSTOMER') and #customerId.toString() == authentication.name)")
     public ResponseEntity<Void> deleteBeneficiary(
             @PathVariable Long customerId,
             @PathVariable Long beneficiaryId) {
