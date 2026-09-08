@@ -26,6 +26,7 @@ public class Customer {
 
     private String address;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(nullable = false)
     private String passwordHash;
 

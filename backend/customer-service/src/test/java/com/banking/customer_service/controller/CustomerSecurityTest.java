@@ -93,7 +93,9 @@ public class CustomerSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").isNumber());
+                .andExpect(jsonPath("$.id").isNumber())
+                .andExpect(jsonPath("$.passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.password").doesNotExist());
     }
 
     @Test
@@ -106,7 +108,9 @@ public class CustomerSecurityTest {
         // Admin token -> 200 OK
         mockMvc.perform(get("/customers")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].passwordHash").doesNotExist())
+                .andExpect(jsonPath("$[0].password").doesNotExist());
     }
 
     @Test
@@ -115,7 +119,9 @@ public class CustomerSecurityTest {
         mockMvc.perform(get("/customers/" + customer1.getId())
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token1))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(customer1.getId()));
+                .andExpect(jsonPath("$.id").value(customer1.getId()))
+                .andExpect(jsonPath("$.passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.password").doesNotExist());
 
         // Customer 1 accessing Customer 2's profile -> 403 Forbidden
         mockMvc.perform(get("/customers/" + customer2.getId())
@@ -126,7 +132,9 @@ public class CustomerSecurityTest {
         mockMvc.perform(get("/customers/" + customer2.getId())
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(customer2.getId()));
+                .andExpect(jsonPath("$.id").value(customer2.getId()))
+                .andExpect(jsonPath("$.passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.password").doesNotExist());
     }
 
     @Test
@@ -146,5 +154,37 @@ public class CustomerSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(beneficiaryJson))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void testPasswordAndHashNeverExposedInCustomerApi() throws Exception {
+        // 1. POST /customers
+        long uniqueTime = System.currentTimeMillis();
+        String json = String.format(
+                "{\"firstName\":\"Eve\",\"lastName\":\"Smith\",\"email\":\"eve.%d@example.com\",\"phoneNumber\":\"%s\",\"password\":\"Secret@123\",\"address\":\"789 Oak St\"}",
+                uniqueTime,
+                String.valueOf(uniqueTime).substring(0, 10)
+        );
+
+        mockMvc.perform(post("/customers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.password").doesNotExist());
+
+        // 2. GET /customers/{id}
+        mockMvc.perform(get("/customers/" + customer1.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token1))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.password").doesNotExist());
+
+        // 3. GET /customers
+        mockMvc.perform(get("/customers")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].passwordHash").doesNotExist())
+                .andExpect(jsonPath("$[*].password").doesNotExist());
     }
 }

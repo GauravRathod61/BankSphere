@@ -154,4 +154,77 @@ class ServiceTokenExpiryAndSecurityTest {
 
         wireMockServer.verify(1, postRequestedFor(urlMatching("/accounts/.*/update-balance")));
     }
+
+    @Test
+    void testScenario6_GetAccountOwner_TokenExpired_SuccessfulRetry() {
+        wireMockServer.stubFor(get(urlEqualTo("/accounts/ACC001"))
+                .inScenario("GetOwnerExpiryRetry")
+                .whenScenarioStateIs(Scenario.STARTED)
+                .willReturn(aResponse()
+                        .withStatus(401)
+                        .withHeader("WWW-Authenticate", "Bearer error=\"invalid_token\", error_description=\"The token is expired\""))
+                .willSetStateTo("TokenRefreshed"));
+
+        wireMockServer.stubFor(get(urlEqualTo("/accounts/ACC001"))
+                .inScenario("GetOwnerExpiryRetry")
+                .whenScenarioStateIs("TokenRefreshed")
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"accountNumber\":\"ACC001\",\"customerId\":100}")));
+
+        Long customerId = accountServiceClient.getAccountOwnerCustomerId("ACC001");
+        assertEquals(100L, customerId);
+
+        wireMockServer.verify(2, getRequestedFor(urlEqualTo("/accounts/ACC001")));
+    }
+
+    @Test
+    void testScenario7_GetAccountOwner_TokenExpired_TimeoutOnRetry() {
+        wireMockServer.stubFor(get(urlEqualTo("/accounts/ACC001"))
+                .inScenario("GetOwnerExpiryTimeout")
+                .whenScenarioStateIs(Scenario.STARTED)
+                .willReturn(aResponse()
+                        .withStatus(401)
+                        .withHeader("WWW-Authenticate", "Bearer error=\"invalid_token\", error_description=\"The token is expired\""))
+                .willSetStateTo("TokenRefreshed"));
+
+        wireMockServer.stubFor(get(urlEqualTo("/accounts/ACC001"))
+                .inScenario("GetOwnerExpiryTimeout")
+                .whenScenarioStateIs("TokenRefreshed")
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withFixedDelay(3500)));
+
+        assertThrows(AccountServiceTimeoutException.class, () ->
+                accountServiceClient.getAccountOwnerCustomerId("ACC001"));
+
+        wireMockServer.verify(2, getRequestedFor(urlEqualTo("/accounts/ACC001")));
+    }
+
+    @Test
+    void testScenario8_GetAccountOwner_Forbidden403_ThrowsSecurityException() {
+        wireMockServer.stubFor(get(urlEqualTo("/accounts/ACC001"))
+                .willReturn(aResponse()
+                        .withStatus(403)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"error\":\"Forbidden\"}")));
+
+        assertThrows(AccountServiceSecurityException.class, () ->
+                accountServiceClient.getAccountOwnerCustomerId("ACC001"));
+
+        wireMockServer.verify(1, getRequestedFor(urlEqualTo("/accounts/ACC001")));
+    }
+
+    @Test
+    void testScenario9_GetAccountOwner_NotFound_ReturnsNull() {
+        wireMockServer.stubFor(get(urlEqualTo("/accounts/ACC_NONEXISTENT"))
+                .willReturn(aResponse()
+                        .withStatus(404)));
+
+        Long result = accountServiceClient.getAccountOwnerCustomerId("ACC_NONEXISTENT");
+        assertNull(result);
+
+        wireMockServer.verify(1, getRequestedFor(urlEqualTo("/accounts/ACC_NONEXISTENT")));
+    }
 }

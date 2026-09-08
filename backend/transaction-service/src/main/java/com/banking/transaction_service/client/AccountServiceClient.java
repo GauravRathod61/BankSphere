@@ -52,38 +52,69 @@ public class AccountServiceClient {
         }
     }
 
+    @Retry(name = "accountService", fallbackMethod = "getAccountOwnerFallback")
+    @CircuitBreaker(name = "accountService", fallbackMethod = "getAccountOwnerFallback")
     public Long getAccountOwnerCustomerId(String accountNumber) {
         String token = serviceTokenService.getServiceToken();
-        String url = accountServiceUrl + "/accounts/" + accountNumber;
         try {
-            Map<String, Object> account = restClient.get()
-                    .uri(url)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                    .retrieve()
-                    .body(new ParameterizedTypeReference<Map<String, Object>>() {});
-            if (account != null && account.get("customerId") != null) {
-                return Long.valueOf(account.get("customerId").toString());
-            }
+            return sendGetAccountOwnerRequest(accountNumber, token);
+        } catch (Exception ex) {
+            return handleGetAccountOwnerException(ex, accountNumber, false);
+        }
+    }
+
+    private Long sendGetAccountOwnerRequest(String accountNumber, String token) {
+        String url = accountServiceUrl + "/accounts/" + accountNumber;
+        Map<String, Object> account = restClient.get()
+                .uri(url)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .retrieve()
+                .body(new ParameterizedTypeReference<Map<String, Object>>() {});
+        if (account != null && account.get("customerId") != null) {
+            return Long.valueOf(account.get("customerId").toString());
+        }
+        return null;
+    }
+
+    private Long handleGetAccountOwnerException(Exception ex, String accountNumber, boolean isRetry) {
+        if (ex instanceof HttpClientErrorException.NotFound) {
             return null;
-        } catch (HttpClientErrorException.NotFound e) {
-            return null;
-        } catch (HttpClientErrorException.Unauthorized e) {
-            if (isTokenExpiredResponse(e)) {
+        }
+
+        if (ex instanceof HttpClientErrorException.Unauthorized unauthorizedEx) {
+            if (!isRetry && isTokenExpiredResponse(unauthorizedEx)) {
+                log.warn("SERVICE token expired calling account-service getAccount. Regenerating token and retrying once.");
                 serviceTokenService.invalidateToken();
                 String freshToken = serviceTokenService.getServiceToken();
-                Map<String, Object> account = restClient.get()
-                        .uri(url)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + freshToken)
-                        .retrieve()
-                        .body(new ParameterizedTypeReference<Map<String, Object>>() {});
-                if (account != null && account.get("customerId") != null) {
-                    return Long.valueOf(account.get("customerId").toString());
+                try {
+                    return sendGetAccountOwnerRequest(accountNumber, freshToken);
+                } catch (Exception retryEx) {
+                    return handleGetAccountOwnerException(retryEx, accountNumber, true);
                 }
             }
-            throw new AccountServiceSecurityException("Security failure getting account: " + e.getMessage(), e);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to lookup account owner", e);
+            throw new AccountServiceSecurityException("Account service authentication failed: " + unauthorizedEx.getMessage(), unauthorizedEx);
         }
+
+        if (ex instanceof HttpClientErrorException.Forbidden forbiddenEx) {
+            throw new AccountServiceSecurityException("Account service access forbidden: " + forbiddenEx.getMessage(), forbiddenEx);
+        }
+
+        if (ex instanceof HttpClientErrorException clientEx) {
+            throw new AccountServiceRejectedException("Account service rejected request: " + clientEx.getMessage(), clientEx);
+        }
+
+        if (ex instanceof ResourceAccessException rae) {
+            if (rae.getCause() instanceof SocketTimeoutException ||
+                    (rae.getMessage() != null && rae.getMessage().toLowerCase().contains("read time"))) {
+                throw new AccountServiceTimeoutException("Read timeout calling account service", rae);
+            }
+            throw new AccountServiceUnavailableException("Account service connection failed: " + rae.getMessage(), rae);
+        }
+
+        if (ex instanceof RuntimeException re) {
+            throw re;
+        }
+        throw new AccountServiceUnavailableException("Account service call failed: " + ex.getMessage(), ex);
     }
 
     private void handleRequestException(Exception ex, String accountNumber, BigDecimal amount, String operationKey, boolean isRetry) {
@@ -156,6 +187,19 @@ public class AccountServiceClient {
     }
 
     public void accountServiceFallback(String accountNumber, BigDecimal amount, String operationKey, Throwable t) {
+        if (t instanceof AccountServiceTimeoutException) {
+            throw (AccountServiceTimeoutException) t;
+        }
+        if (t instanceof AccountServiceRejectedException) {
+            throw (AccountServiceRejectedException) t;
+        }
+        if (t instanceof AccountServiceSecurityException) {
+            throw (AccountServiceSecurityException) t;
+        }
+        throw new AccountServiceUnavailableException("Account service is unavailable: " + t.getMessage(), t);
+    }
+
+    public Long getAccountOwnerFallback(String accountNumber, Throwable t) {
         if (t instanceof AccountServiceTimeoutException) {
             throw (AccountServiceTimeoutException) t;
         }

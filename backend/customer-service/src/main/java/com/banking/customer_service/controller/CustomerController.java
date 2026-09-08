@@ -2,6 +2,7 @@ package com.banking.customer_service.controller;
 
 import com.banking.customer_service.dto.BeneficiaryDto;
 import com.banking.customer_service.dto.CustomerDto;
+import com.banking.customer_service.dto.CustomerResponseDto;
 import com.banking.customer_service.model.Beneficiary;
 import com.banking.customer_service.model.Customer;
 import com.banking.customer_service.service.CustomerService;
@@ -21,20 +22,25 @@ public class CustomerController {
     private final CustomerService customerService;
 
     @PostMapping
-    public ResponseEntity<Customer> createCustomer(@Valid @RequestBody CustomerDto customerDto) {
-        return new ResponseEntity<>(customerService.createCustomer(customerDto), HttpStatus.CREATED);
+    public ResponseEntity<CustomerResponseDto> createCustomer(@Valid @RequestBody CustomerDto customerDto) {
+        Customer created = customerService.createCustomer(customerDto);
+        return new ResponseEntity<>(CustomerResponseDto.fromEntity(created), HttpStatus.CREATED);
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN') or (hasRole('CUSTOMER') and #id.toString() == authentication.name)")
-    public ResponseEntity<Customer> getCustomer(@PathVariable Long id) {
-        return ResponseEntity.ok(customerService.getCustomerById(id));
+    public ResponseEntity<CustomerResponseDto> getCustomer(@PathVariable Long id) {
+        Customer customer = customerService.getCustomerById(id);
+        return ResponseEntity.ok(CustomerResponseDto.fromEntity(customer));
     }
 
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<Customer>> getAllCustomers() {
-        return ResponseEntity.ok(customerService.getAllCustomers());
+    public ResponseEntity<List<CustomerResponseDto>> getAllCustomers() {
+        List<CustomerResponseDto> list = customerService.getAllCustomers().stream()
+                .map(CustomerResponseDto::fromEntity)
+                .toList();
+        return ResponseEntity.ok(list);
     }
 
     @PostMapping("/{customerId}/beneficiaries")

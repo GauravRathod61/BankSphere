@@ -223,4 +223,16 @@ public class TransactionSecurityTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void testDeposit_CustomerCanDepositIntoAnyAccount_Allowed() throws Exception {
+        // Intentional design: DEPOSIT is a credit operation and does not debit caller funds,
+        // so an authenticated customer is permitted to deposit into another customer's account.
+        String jsonDepositOther = "{\"sourceAccountNumber\":\"ACC002\",\"amount\":100.00,\"type\":\"DEPOSIT\"}";
+        mockMvc.perform(post("/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customer1Token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonDepositOther))
+                .andExpect(status().isCreated());
+    }
 }

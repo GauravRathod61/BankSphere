@@ -138,4 +138,45 @@ class TransactionServiceResilienceTest {
                 circuitBreakerRegistry.circuitBreaker("accountService").getState(),
                 "Circuit breaker must be OPEN after 5 logical calls fail");
     }
+
+    @Test
+    void testGetAccountOwner_ConnectionFailure_RetriesAndThrowsUnavailableException() {
+        wireMockServer.stop();
+
+        assertThrows(AccountServiceUnavailableException.class, () ->
+                accountServiceClient.getAccountOwnerCustomerId("ACC001"));
+    }
+
+    @Test
+    void testGetAccountOwner_CircuitBreakerOpens_FailsFast() {
+        wireMockServer.stubFor(get(urlMatching("/accounts/.*"))
+                .willReturn(aResponse().withStatus(500)));
+
+        // 5 consecutive 500 errors to open circuit breaker
+        for (int i = 0; i < 5; i++) {
+            assertThrows(AccountServiceUnavailableException.class, () ->
+                    accountServiceClient.getAccountOwnerCustomerId("ACC001"));
+        }
+
+        wireMockServer.verify(5, getRequestedFor(urlMatching("/accounts/.*")));
+
+        // 6th call: Circuit breaker is OPEN -> fails fast without hitting WireMock
+        assertThrows(AccountServiceUnavailableException.class, () ->
+                accountServiceClient.getAccountOwnerCustomerId("ACC001"));
+
+        wireMockServer.verify(5, getRequestedFor(urlMatching("/accounts/.*")));
+    }
+
+    @Test
+    void testGetAccountOwner_404_ReturnsNullWithoutTriggeringCircuitBreakerFailure() {
+        wireMockServer.stubFor(get(urlEqualTo("/accounts/ACC_NONE"))
+                .willReturn(aResponse().withStatus(404)));
+
+        Long result = accountServiceClient.getAccountOwnerCustomerId("ACC_NONE");
+        assertNull(result);
+
+        io.github.resilience4j.circuitbreaker.CircuitBreaker cb = circuitBreakerRegistry.circuitBreaker("accountService");
+        assertEquals(io.github.resilience4j.circuitbreaker.CircuitBreaker.State.CLOSED, cb.getState());
+        assertEquals(0, cb.getMetrics().getNumberOfFailedCalls());
+    }
 }
