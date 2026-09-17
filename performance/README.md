@@ -38,25 +38,25 @@ k6 version
 
 ## 3. Starting the Services
 
-All 4 microservices must be running and connected to PostgreSQL (`banking_db`) with a shared `JWT_SECRET`:
+All 4 microservices must be running and connected to PostgreSQL (`banking_db`) with a shared `JWT_SECRET` (minimum 32 characters):
 
 ### In Terminal 1 (Customer Service - Port 8081):
 ```powershell
-$env:JWT_SECRET = "supersecretjwtkeywith32charactersormore!"
+$env:JWT_SECRET = "<your-local-jwt-secret>"
 cd backend/customer-service
 .\mvnw.cmd spring-boot:run
 ```
 
 ### In Terminal 2 (Account Service - Port 8082):
 ```powershell
-$env:JWT_SECRET = "supersecretjwtkeywith32charactersormore!"
+$env:JWT_SECRET = "<your-local-jwt-secret>"
 cd backend/account-service
 .\mvnw.cmd spring-boot:run
 ```
 
 ### In Terminal 3 (Transaction Service - Port 8083):
 ```powershell
-$env:JWT_SECRET = "supersecretjwtkeywith32charactersormore!"
+$env:JWT_SECRET = "<your-local-jwt-secret>"
 cd backend/transaction-service
 .\mvnw.cmd spring-boot:run
 ```
@@ -105,8 +105,9 @@ k6 run --summary-export performance/results/contention_summary.json performance/
 - **Latency Distribution**:
   - `avg`: Arithmetic mean request duration
   - `p(50)`: 50th percentile (median)
+  - `p(90)`: 90th percentile
   - `p(95)`: 95th percentile
-  - `p(99)`: 99th percentile tail latency
+  - `max`: Maximum recorded request duration
 - **Error Rate**: Percentage of failed HTTP requests or unexpected status codes.
 - **Saga / Balance Update Latency**: Multi-step transaction processing duration including inter-service calls.
 - **OCC Conflicts**: Retried vs rejected balance updates under race conditions.

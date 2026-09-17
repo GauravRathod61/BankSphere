@@ -16,7 +16,7 @@ This document reports the actual measured performance, capacity, and concurrency
   - `customer-service` (port 8081)
   - `account-service` (port 8082)
   - `transaction-service` (port 8083)
-- **Auth**: HMAC-SHA256 JWT validation at Gateway and Service boundaries
+- **Auth**: API Gateway forwards incoming `Authorization: Bearer <token>` headers; downstream protected services (`customer-service`, `account-service`, `transaction-service`) perform Spring Security HMAC-SHA256 JWT validation and RBAC/BOLA authorization
 - **Resilience**: Resilience4j CircuitBreaker + Retry with exponential jitter backoff
 - **Concurrency Control**: JPA Optimistic Locking (`@Version`) with 3-attempt synchronized retry loop
 
