@@ -270,6 +270,44 @@ class TransactionSagaTest {
                 .withRequestBody(matchingJsonPath("$.operationKey", equalTo(expectedCompKey))));
     }
 
+    @Test
+    void testAmbiguousDebit_ReconciliationTimesOutAgain_FailedNeedsManualReview() {
+        // DEBIT times out on 1st call AND on reconciliation call
+        wireMockServer.stubFor(post(urlPathEqualTo("/accounts/ACC001/update-balance"))
+                .willReturn(aResponse().withStatus(200).withFixedDelay(3500)));
+
+        TransactionRequestDto dto = createTransferDto("ACC001", "ACC002", "100.00");
+        Transaction tx = transactionService.processTransaction(dto);
+
+        assertEquals(Transaction.TransactionStatus.FAILED_NEEDS_MANUAL_REVIEW, tx.getStatus());
+        // Verify no CREDIT was attempted for ACC002
+        wireMockServer.verify(0, postRequestedFor(urlPathEqualTo("/accounts/ACC002/update-balance")));
+    }
+
+    @Test
+    void testAmbiguousWithdrawReconciliation_Succeeds() {
+        wireMockServer.stubFor(post(urlPathEqualTo("/accounts/ACC001/update-balance"))
+                .inScenario("WithdrawReconciliation")
+                .whenScenarioStateIs(Scenario.STARTED)
+                .willReturn(aResponse().withStatus(200).withFixedDelay(3500))
+                .willSetStateTo("RECONCILE"));
+
+        wireMockServer.stubFor(post(urlPathEqualTo("/accounts/ACC001/update-balance"))
+                .inScenario("WithdrawReconciliation")
+                .whenScenarioStateIs("RECONCILE")
+                .willReturn(aResponse().withStatus(200)));
+
+        TransactionRequestDto dto = new TransactionRequestDto();
+        dto.setSourceAccountNumber("ACC001");
+        dto.setAmount(new BigDecimal("75.00"));
+        dto.setType(Transaction.TransactionType.WITHDRAW);
+        dto.setDescription("Test Withdraw");
+
+        Transaction tx = transactionService.processTransaction(dto);
+
+        assertEquals(Transaction.TransactionStatus.SUCCESS, tx.getStatus());
+    }
+
     private TransactionRequestDto createTransferDto(String source, String target, String amount) {
         TransactionRequestDto dto = new TransactionRequestDto();
         dto.setSourceAccountNumber(source);

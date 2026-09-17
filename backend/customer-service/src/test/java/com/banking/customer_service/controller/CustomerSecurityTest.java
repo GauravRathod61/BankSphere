@@ -80,13 +80,14 @@ public class CustomerSecurityTest {
         adminToken = jwtService.generateToken(admin);
     }
 
+    private static final java.util.concurrent.atomic.AtomicLong COUNTER = new java.util.concurrent.atomic.AtomicLong(1000000000L);
+
     @Test
     void testPublicRegistration_SucceedsWithoutToken() throws Exception {
-        long uniqueTime = System.currentTimeMillis();
+        long id = COUNTER.incrementAndGet();
         String json = String.format(
-                "{\"firstName\":\"David\",\"lastName\":\"Miller\",\"email\":\"david.miller.%d@example.com\",\"phoneNumber\":\"%s\",\"password\":\"Password@123\",\"address\":\"456 Elm St\"}",
-                uniqueTime,
-                String.valueOf(uniqueTime).substring(0, 10)
+                "{\"firstName\":\"David\",\"lastName\":\"Miller\",\"email\":\"david.miller.%d@example.com\",\"phoneNumber\":\"%d\",\"password\":\"Password@123\",\"address\":\"456 Elm St\"}",
+                id, id
         );
 
         mockMvc.perform(post("/customers")
@@ -159,11 +160,10 @@ public class CustomerSecurityTest {
     @Test
     void testPasswordAndHashNeverExposedInCustomerApi() throws Exception {
         // 1. POST /customers
-        long uniqueTime = System.currentTimeMillis();
+        long id = COUNTER.incrementAndGet();
         String json = String.format(
-                "{\"firstName\":\"Eve\",\"lastName\":\"Smith\",\"email\":\"eve.%d@example.com\",\"phoneNumber\":\"%s\",\"password\":\"Secret@123\",\"address\":\"789 Oak St\"}",
-                uniqueTime,
-                String.valueOf(uniqueTime).substring(0, 10)
+                "{\"firstName\":\"Eve\",\"lastName\":\"Smith\",\"email\":\"eve.%d@example.com\",\"phoneNumber\":\"%d\",\"password\":\"Secret@123\",\"address\":\"789 Oak St\"}",
+                id, id
         );
 
         mockMvc.perform(post("/customers")

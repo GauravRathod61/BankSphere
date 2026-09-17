@@ -30,3 +30,7 @@ data/
 *.pem
 *.key
 .env
+
+# Performance test raw results
+performance/results/*
+!performance/results/.gitkeep
