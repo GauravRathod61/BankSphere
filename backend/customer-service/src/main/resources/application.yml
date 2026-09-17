@@ -5,9 +5,9 @@ spring:
   application:
     name: customer-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/banking_db
-    username: postgres
-    password: postgres
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/banking_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
   jpa:
     hibernate:
       ddl-auto: update
@@ -22,6 +22,9 @@ banking:
     jwt:
       secret: ${JWT_SECRET}
       expiration-ms: 3600000
+    admin:
+      email: ${ADMIN_EMAIL:admin@banksphere.com}
+      password: ${ADMIN_PASSWORD:}
 
 management:
   endpoints:

@@ -18,6 +18,9 @@ banking:
     jwt:
       secret: "TestOnlyJwtSecretMustBeAtLeast256BitsLongForHMACSHA256Testing123456"
       expiration-ms: 3600000
+    admin:
+      email: "admin@banksphere.com"
+      password: "TestConfiguredAdminPassword@123"
 
 logging:
   level:

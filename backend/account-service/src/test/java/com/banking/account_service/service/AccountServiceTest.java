@@ -174,4 +174,52 @@ class AccountServiceTest {
         // Verify account repository saveAndFlush was called ONLY ONCE
         verify(accountRepository, times(1)).saveAndFlush(any(Account.class));
     }
+
+    @Test
+    void testUpdateBalance_ClosedAccount_ThrowsException() {
+        String accountNumber = "ACC-CLOSED-1";
+        Account closedAccount = new Account();
+        closedAccount.setAccountNumber(accountNumber);
+        closedAccount.setBalance(new BigDecimal("500.00"));
+        closedAccount.setAccountType(Account.AccountType.CURRENT);
+        closedAccount.setStatus(Account.AccountStatus.CLOSED);
+
+        when(accountRepository.findByAccountNumber(accountNumber)).thenReturn(Optional.of(closedAccount));
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () ->
+                accountService.updateBalance(accountNumber, new BigDecimal("100.00"), "op-closed-test"));
+        assertTrue(ex.getMessage().contains("Account is not active"), "Must reject balance update on CLOSED account");
+        verify(accountRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void testUnfreezeAccount_ClosedAccount_ThrowsException() {
+        String accountNumber = "ACC-CLOSED-2";
+        Account closedAccount = new Account();
+        closedAccount.setAccountNumber(accountNumber);
+        closedAccount.setStatus(Account.AccountStatus.CLOSED);
+
+        when(accountRepository.findByAccountNumber(accountNumber)).thenReturn(Optional.of(closedAccount));
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () ->
+                accountService.unfreezeAccount(accountNumber));
+        assertTrue(ex.getMessage().contains("Cannot unfreeze a closed account"));
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void testUnfreezeAccount_FrozenAccount_Succeeds() {
+        String accountNumber = "ACC-FROZEN-1";
+        Account frozenAccount = new Account();
+        frozenAccount.setAccountNumber(accountNumber);
+        frozenAccount.setStatus(Account.AccountStatus.FROZEN);
+
+        when(accountRepository.findByAccountNumber(accountNumber)).thenReturn(Optional.of(frozenAccount));
+        when(accountRepository.save(any(Account.class))).thenReturn(frozenAccount);
+
+        accountService.unfreezeAccount(accountNumber);
+
+        assertEquals(Account.AccountStatus.ACTIVE, frozenAccount.getStatus());
+        verify(accountRepository, times(1)).save(frozenAccount);
+    }
 }

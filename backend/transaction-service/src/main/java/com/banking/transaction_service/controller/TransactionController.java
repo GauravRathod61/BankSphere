@@ -31,6 +31,12 @@ public class TransactionController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication) {
         
+        if (dto.getType() == Transaction.TransactionType.TRANSFER) {
+            if (dto.getTargetAccountNumber() == null || dto.getTargetAccountNumber().isBlank()) {
+                throw new IllegalArgumentException("Target account number is mandatory for transfers");
+            }
+        }
+
         boolean isAdmin = authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
         if (!isAdmin) {
             // For WITHDRAW and TRANSFER, verify that caller is the owner of the source account

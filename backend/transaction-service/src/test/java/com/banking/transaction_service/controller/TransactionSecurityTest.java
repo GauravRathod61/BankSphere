@@ -157,7 +157,7 @@ public class TransactionSecurityTest {
     @Test
     void testTransfer_BOLA_CustomerTransferringFromOtherAccount_Returns403() throws Exception {
         // Customer 100 attempting TRANSFER from Customer 200's account -> 403 Forbidden
-        String jsonTransferOther = "{\"sourceAccountNumber\":\"ACC002\",\"destinationAccountNumber\":\"ACC001\",\"amount\":100.00,\"type\":\"TRANSFER\"}";
+        String jsonTransferOther = "{\"sourceAccountNumber\":\"ACC002\",\"targetAccountNumber\":\"ACC001\",\"amount\":100.00,\"type\":\"TRANSFER\"}";
         mockMvc.perform(post("/transactions")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + customer1Token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -165,7 +165,7 @@ public class TransactionSecurityTest {
                 .andExpect(status().isForbidden());
 
         // Customer 100 attempting TRANSFER from own account -> 201 Created
-        String jsonTransferOwn = "{\"sourceAccountNumber\":\"ACC001\",\"destinationAccountNumber\":\"ACC002\",\"amount\":100.00,\"type\":\"TRANSFER\"}";
+        String jsonTransferOwn = "{\"sourceAccountNumber\":\"ACC001\",\"targetAccountNumber\":\"ACC002\",\"amount\":100.00,\"type\":\"TRANSFER\"}";
         mockMvc.perform(post("/transactions")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + customer1Token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -234,5 +234,16 @@ public class TransactionSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonDepositOther))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void testTransfer_WithoutTargetAccountNumber_Returns400() throws Exception {
+        // Transfer request with null/blank targetAccountNumber must fail fast with 400 Bad Request
+        String jsonTransferNoTarget = "{\"sourceAccountNumber\":\"ACC001\",\"amount\":100.00,\"type\":\"TRANSFER\"}";
+        mockMvc.perform(post("/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customer1Token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonTransferNoTarget))
+                .andExpect(status().isBadRequest());
     }
 }

@@ -90,13 +90,13 @@ export default function (data) {
 
     if (res.status === 201) {
         successfulContentionTx.add(1);
-    } else if (res.status === 409 || res.status === 500) {
+    } else if (res.status === 409) {
         // Potential OCC retry exhaustion under extreme concurrency
         occConflictCounter.add(1);
     }
 
     check(res, {
-        'contention tx processed': (r) => r.status === 201 || r.status === 409 || r.status === 500,
+        'contention tx processed': (r) => r.status === 201 || r.status === 409,
     });
 
     // Tight loop to maximize race conditions and OCC contention

@@ -44,7 +44,7 @@ BankSphere/
 ## 🏛️ Core Architecture & Engineering Highlights
 
 * **Microservices & API Gateway**: Centralized Spring Cloud Gateway MVC entry point on port `8080` routing to downstream `customer-service` (8081), `account-service` (8082), and `transaction-service` (8083).
-* **Optimistic Concurrency Control (OCC)**: JPA `@Version` on `Account` with an automated 3-attempt synchronized retry loop and randomized exponential jitter backoff in `AccountService` to handle high-concurrency balance updates without data corruption.
+* **Optimistic Concurrency Control (OCC)**: JPA `@Version` on `Account` with an automated 3-attempt optimistic-lock retry loop with randomized jitter backoff in `AccountService` to handle high-concurrency balance updates without data corruption.
 * **Resilience4j Circuit Breaker & Retry**: Configured on `AccountServiceClient` for inter-service calls with custom exception taxonomy (`AccountServiceTimeoutException`, `AccountServiceRejectedException`, `AccountServiceSecurityException`, `AccountServiceUnavailableException`) and dedicated fallback handlers.
 * **Idempotency**: Dual-layer idempotency using `Idempotency-Key` headers for client transaction requests and unique `operation_key` ledger tracking in `balance_operations` for exact-once balance modifications.
 * **Saga Pattern & Distributed Compensation**: Orchestrated multi-step Transfer Sagas (Source Debit $\rightarrow$ Target Credit) with automated compensation refunds (`{txId}-DEBIT-COMPENSATION`) on credit failures and same-key reconciliation for ambiguous timeout states (`FAILED_NEEDS_MANUAL_REVIEW`).

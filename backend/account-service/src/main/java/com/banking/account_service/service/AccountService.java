@@ -91,8 +91,8 @@ public class AccountService {
                 transactionTemplate.executeWithoutResult(status -> {
                     Account account = getAccount(accountNumber);
                     
-                    if (account.getStatus() == Account.AccountStatus.FROZEN) {
-                        throw new RuntimeException("Account is frozen");
+                    if (account.getStatus() != Account.AccountStatus.ACTIVE) {
+                        throw new RuntimeException("Account is not active: " + account.getStatus());
                     }
 
                     BigDecimal newBalance = account.getBalance().add(amount);
@@ -166,6 +166,9 @@ public class AccountService {
     @Transactional
     public void unfreezeAccount(String accountNumber) {
         Account account = getAccount(accountNumber);
+        if (account.getStatus() == Account.AccountStatus.CLOSED) {
+            throw new RuntimeException("Cannot unfreeze a closed account");
+        }
         account.setStatus(Account.AccountStatus.ACTIVE);
         accountRepository.save(account);
         log.info("Account unfrozen: {}", maskAccountNumber(accountNumber));

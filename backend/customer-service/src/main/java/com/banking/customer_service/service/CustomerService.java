@@ -26,9 +26,23 @@ public class CustomerService {
     private final JwtService jwtService;
     private final MeterRegistry meterRegistry;
 
+    @org.springframework.beans.factory.annotation.Value("${banking.security.admin.email:admin@banksphere.com}")
+    private String adminEmail;
+
+    @org.springframework.beans.factory.annotation.Value("${banking.security.admin.password:}")
+    private String adminPassword;
+
+    public void setAdminCredentials(String email, String password) {
+        this.adminEmail = email;
+        this.adminPassword = password;
+    }
+
     @PostConstruct
     public void seedAdmin() {
-        String adminEmail = "admin@banksphere.com";
+        if (adminPassword == null || adminPassword.isBlank()) {
+            log.info("No admin password configured, skipping admin seeding");
+            return;
+        }
         if (customerRepository.findByEmail(adminEmail).isEmpty()) {
             Customer admin = new Customer();
             admin.setFirstName("System");
@@ -36,7 +50,7 @@ public class CustomerService {
             admin.setEmail(adminEmail);
             admin.setPhoneNumber("0000000000");
             admin.setAddress("BankSphere HQ");
-            admin.setPasswordHash(passwordEncoder.encode("Admin@123"));
+            admin.setPasswordHash(passwordEncoder.encode(adminPassword));
             admin.setRole(Customer.Role.ADMIN);
             customerRepository.save(admin);
             log.info("Initialized default ADMIN user: {}", maskEmail(adminEmail));
